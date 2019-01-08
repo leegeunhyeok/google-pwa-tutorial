@@ -50,9 +50,14 @@
     var selected = select.options[select.selectedIndex];
     var key = selected.value;
     var label = selected.textContent;
+    if (!app.selectedCities) {
+      app.selectedCities = [];
+    }
     // TODO init the app.selectedCities array here
     app.getForecast(key, label);
+    app.selectedCities.push({key: key, label: label});
     // TODO push the selected city to the array and save here
+    app.saveSelectedCities();
     app.toggleAddDialog(false);
   });
 
@@ -162,30 +167,83 @@
    * freshest data.
    */
   app.getForecast = function(key, label) {
+    // Warning: 야후 날씨 API가 이전된 듯. 임시 데이터 생성하도록 코드 변경 함
     var statement = 'select * from weather.forecast where woeid=' + key;
     var url = 'https://query.yahooapis.com/v1/public/yql?format=json&q=' +
         statement;
+
+    // // Fetch the latest data.
+    // var request = new XMLHttpRequest();
+    // request.onreadystatechange = function() {
+    //   if (request.readyState === XMLHttpRequest.DONE) {
+    //     if (request.status === 200) {
+    //       var response = JSON.parse(request.response);
+    //       var results = response.query.results;
+    //       results.key = key;
+    //       results.label = label;
+    //       results.created = response.query.created;
+    //       app.updateForecastCard(results);
+    //     }
+    //   } else {
+    //     // Return the initial weather forecast since no data is available.
+    //     app.updateForecastCard(initialWeatherForecast);
+    //   }
+    // };
+    // request.open('GET', url);
+    // request.send();
+    
     // TODO add cache logic here
 
-    // Fetch the latest data.
-    var request = new XMLHttpRequest();
-    request.onreadystatechange = function() {
-      if (request.readyState === XMLHttpRequest.DONE) {
-        if (request.status === 200) {
-          var response = JSON.parse(request.response);
-          var results = response.query.results;
-          results.key = key;
-          results.label = label;
-          results.created = response.query.created;
-          app.updateForecastCard(results);
+    (function () {
+      var todayWeatherCode = Math.floor(Math.random() * 50);
+      var todayWeatherString = app.getIconClass(todayWeatherCode) || 'Clear day';
+      var todayTemp = Math.floor(Math.random() * 40) + 60;
+      var createdDate = new Date().toISOString();
+      var humidity = Math.floor(Math.random() * 100);
+      var windSpeed = Math.floor(Math.random() * 100);
+      var windDirection = Math.floor(Math.random() * 360);
+      var sampleData = {
+        key: key,
+        label: label,
+        created: createdDate,
+        channel: {
+          astronomy: {
+            sunrise: "5:43 am",
+            sunset: "8:21 pm"
+          },
+          item: {
+            condition: {
+              text: todayWeatherString.charAt(0).toUpperCase() + todayWeatherString.slice(1).replace(/-/g, ' '),
+              date: createdDate,
+              temp: todayTemp,
+              code: todayWeatherCode
+            },
+            forecast: [] // 1주일 (7일 날씨)
+          },
+          atmosphere: {
+            humidity: humidity
+          },
+          wind: {
+            speed: windSpeed,
+            direction: windDirection
+          }
         }
-      } else {
-        // Return the initial weather forecast since no data is available.
-        app.updateForecastCard(initialWeatherForecast);
       }
-    };
-    request.open('GET', url);
-    request.send();
+
+      for (var i = 0; i < 7; i++) {
+        var weatherCode = Math.floor(Math.random() * 50);
+        var tempHigh = Math.floor(Math.random() * 20) + 80;
+        var tempLow = Math.floor(Math.random() * 10) + 60;
+        sampleData.channel.item.forecast.push({
+          code: weatherCode,
+          high: tempHigh,
+          low: tempLow
+        });
+      }
+
+      // 샘플 데이터로 날씨 업데이트
+      app.updateForecastCard(sampleData);
+    })();
   };
 
   // Iterate all of the cards and attempt to get the latest forecast data
@@ -197,6 +255,12 @@
   };
 
   // TODO add saveSelectedCities function here
+  // Save list of cities to localStorage.
+  // ps. 실제 운영 시, 로컬저장소 대신 IndexedDB 또는 다른 고속 저장소를 사용해야 함
+  app.saveSelectedCities = function() {
+    var selectedCities = JSON.stringify(app.selectedCities);
+    localStorage.selectedCities = selectedCities;
+  };
 
   app.getIconClass = function(weatherCode) {
     // Weather codes: https://developer.yahoo.com/weather/documentation.html#codes
@@ -303,9 +367,41 @@
     }
   };
   // TODO uncomment line below to test app with fake data
-  //app.updateForecastCard(initialWeatherForecast);
+  app.updateForecastCard(initialWeatherForecast);
 
   // TODO add startup code here
+  /************************************************************************
+   *
+   * Code required to start the app
+   *
+   * NOTE: To simplify this codelab, we've used localStorage.
+   *   localStorage is a synchronous API and has serious performance
+   *   implications. It should not be used in production applications!
+   *   Instead, check out IDB (https://www.npmjs.com/package/idb) or
+   *   SimpleDB (https://gist.github.com/inexorabletash/c8069c042b734519680c)
+   ************************************************************************/
+  app.selectedCities = localStorage.selectedCities;
+  if (app.selectedCities) {
+    app.selectedCities = JSON.parse(app.selectedCities);
+    app.selectedCities.forEach(function(city) {
+      // 저장된 도시 데이터의 날씨 정보 수집
+      app.getForecast(city.key, city.label);
+    });
+  } else {
+    /* The user is using the app for the first time, or the user has not
+     * saved any cities, so show the user some fake data. A real app in this
+     * scenario could guess the user's location via IP lookup and then inject
+     * that data into the page.
+     * 유저가 처음으로 앱을 사용한 경우 (저장된 도시 데이터가 없는 경우)
+     */
+    app.updateForecastCard(initialWeatherForecast);
+
+    // 임시 초기 데이터를 이후 앱 실행시 로드하기 위해 새로 저장
+    app.selectedCities = [
+      {key: initialWeatherForecast.key, label: initialWeatherForecast.label}
+    ];
+    app.saveSelectedCities();
+  }
 
   // TODO add service worker code here
 })();
